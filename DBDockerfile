@@ -1,0 +1,7 @@
+FROM mysql:latest
+
+RUN apt-get update && apt-get install python3 -y
+
+# All scripts in docker-entrypoint-initdb.d/ are automatically
+# executed during container startup
+COPY infra/scripts/ /docker-entrypoint-initdb.d/

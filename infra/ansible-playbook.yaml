@@ -1,0 +1,169 @@
+---
+  #Install minikube
+  - name: install-minikube-sudo
+    hosts: localhost
+    ##Require sudo to install minikube
+    become: yes
+    vars:
+      os_system: "darwin" #MACOS
+      #os_system: "linux" #LINUX
+
+    tasks:
+      # Check minikube existence
+      - name: Check Minikube existence
+        command: minikube version
+        register: minikube_exist
+        changed_when: false
+        ignore_errors: true
+
+      # Otherwise will install minikube
+      - name: Download Minikube if it's not exist.
+        command: curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-{{ os_system }}-amd64
+        when: "not minikube_exist.stdout or 'version' not in minikube_exist.stdout"
+      - name: Install Minikube if it's not exist.
+        command: sudo install minikube-{{ os_system }}-amd64 /usr/local/bin/minikube
+        when: "not minikube_exist.stdout or 'version' not in minikube_exist.stdout"
+  
+  #Configure minikube and deploy mysql in minikube
+  - name: minikube-mysql-setup
+    hosts: localhost 
+    vars:
+      db_app_name: test-mysql
+      db_app_port: 3306
+      replicas: 1
+      db_image_name: mysql-python3
+      db_image_tag: latest
+
+    pre_tasks:
+      # Check minikube status
+      - name: Check Minikube's status.
+        command: minikube status
+        register: minikube_status
+        changed_when: false
+        ignore_errors: true 
+
+      # Otherwise will start minikube
+      - name: Start Minikube if it's not running.
+        command: minikube start
+        when: "not minikube_status.stdout or 'Running' not in minikube_status.stdout"
+      
+      # Start Minikube tunnel (loadbalancer) and run in background. 
+      - name: Configure minikube tunnel 
+        shell: nohup minikube tunnel </dev/null >/dev/null 2>&1 &
+
+    tasks:
+      # Share docker image with minikube and Build MySQLDocker image
+      - name: Build MySQL docker image
+        shell: |
+          eval $(minikube docker-env)
+          docker build -t mysql-python3:latest -f ../DBDockerfile ../
+
+      #Create Kubernetes Deployment resources for mysql
+      - name: Create Kubernetes Deployment for mysql
+        k8s:
+          state: present
+          definition:
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: "{{ db_app_name }}"
+              namespace: default
+            spec:
+              replicas: "{{ replicas }}"
+              selector:
+                matchLabels:
+                  app: "{{ db_app_name }}"
+              template:
+                metadata:
+                  labels:
+                    app: "{{ db_app_name }}"
+                spec:
+                  containers:
+                  - name: "{{ db_app_name }}"
+                    image: "{{ db_image_name }}:{{ db_image_tag }}"
+                    imagePullPolicy: IfNotPresent
+                    ports:
+                    - containerPort: "{{ db_app_port }}"
+                    env: 
+                    - name: "MYSQL_ALLOW_EMPTY_PASSWORD"
+                      value: "yes"
+
+      #Create Kubernetes service resource for mysql
+      - name: Create Kubernetes Service
+        k8s:
+          state: present
+          definition:
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: "{{ db_app_name }}"
+              namespace: default
+            spec:
+              type: NodePort
+              ports:
+              - port: "{{ db_app_port }}"
+                targetPort: "{{ db_app_port }}"
+              selector:
+                app: "{{ db_app_name }}"    
+
+  - name: deploy-app-k8s
+    hosts: localhost 
+    vars:
+      image_name: node-hw-mysql
+      image_tag: latest
+      replicas: 1
+      app_name: hello-nodejs
+      app_port: 3000
+    tasks:
+      # Share docker image with minikube and Build app Docker image
+      - name: Build app docker image
+        shell: |
+          eval $(minikube docker-env)
+          docker build -t {{ image_name }}:{{ image_tag }} ../
+
+      #Create Kubernetes deployment resource for helloworld nodejs
+      - name: Create Kubernetes Deployment
+        k8s:
+          state: present
+          definition:
+            apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: "{{ app_name }}"
+              namespace: default
+            spec:
+              replicas: "{{ replicas }}"
+              selector:
+                matchLabels:
+                  app: "{{ app_name }}"
+              template:
+                metadata:
+                  labels:
+                    app: "{{ app_name }}"
+                spec:
+                  containers:
+                  - name: "{{ app_name }}"
+                    image: "{{ image_name }}:{{ image_tag }}"
+                    imagePullPolicy: IfNotPresent
+                    ports:
+                    - containerPort: "{{ app_port }}"
+
+      #Create Kubernetes service resource for helloworld nodejs
+      - name: Create Kubernetes Service
+        k8s:
+          state: present
+          definition:
+            apiVersion: v1
+            kind: Service
+            metadata:
+              name: "{{ app_name }}"
+              namespace: default
+            spec:
+              type: LoadBalancer
+              ports:
+              - port: "{{ app_port }}"
+                targetPort: "{{ app_port }}"
+              selector:
+                app: "{{ app_name }}"
+
+  

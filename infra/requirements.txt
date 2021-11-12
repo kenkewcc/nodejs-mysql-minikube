@@ -1,0 +1,5 @@
+ansible
+requests
+docker
+PyMySQL
+openshift

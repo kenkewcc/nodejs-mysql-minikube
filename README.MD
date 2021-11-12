@@ -2,12 +2,15 @@
 
 ## Usage
 
-### Install prerequisite required to run the ansible. 
+### 1. Install prerequisite required to run the ansible. 
 ```
 pip install --user -r infra/requirements.txt
 ```
 
-### Run Ansible 
+### 2. Run Ansible-playbook
+```
+ansible-playbook infra/ansible-playbook.yaml --ask-become-pass
+```
 Ansible will do the following:
 1. Installation for minikube.
 2. Start minikube if not running.
@@ -16,9 +19,6 @@ Ansible will do the following:
 5. Deploy mysql to minikube and configure svc
 6. Deploy nodejs to minikube and configure svc
 
-```
-ansible-playbook infra/ansible-playbook.yaml --ask-become-pass
-```
 
 ### To view the webpage, use kubectl to forward the port
 ```
